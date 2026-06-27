@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+<!-- ホーム画面追加でアプリっぽく見せるメタタグ -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Metro+Tuner">
+<meta name="theme-color" content="#0d0d14">
+
+<title>メトロノーム & チューナー</title>
+<style>
+  :root{
+    --bg:#0d0d14; --panel:#16161f; --panel2:#1f1f2b; --line:#2b2b3a;
+    --text:#f3f3f8; --dim:#8a8a9c;
+    --accent:#2dd4bf; --accent-soft:#155e57;
+    --good:#3ddc97; --warn:#f2c94c; --bad:#ff6b6b;
+    --strong:#2dd4bf; --medium:#f2c94c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Helvetica Neue",sans-serif;
+    -webkit-user-select:none; user-select:none;
+    display:flex; flex-direction:column; min-height:100vh;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  .tabs{ display:flex; gap:8px; padding:14px 14px 6px; }
+  .tab{ flex:1; padding:16px 0; border:none; border-radius:14px; background:var(--panel); color:var(--dim); font-size:18px; font-weight:700; transition:.15s; }
+  .tab.active{ background:var(--accent); color:#04201d; box-shadow:0 4px 18px rgba(45,212,191,.25); }
+
+  .view{ flex:1; display:none; flex-direction:column; padding:6px 16px 22px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .view.active{ display:flex; }
+
+  button{ font-family:inherit; cursor:pointer; color:var(--text); }
+  .btn{ border:none; border-radius:14px; background:var(--panel2); font-size:22px; font-weight:700; padding:18px 0; transition:.12s; }
+  .btn:active{ transform:scale(.96); }
+  .btn-primary{ background:var(--accent); color:#04201d; }
+  .btn-primary.running{ background:var(--bad); color:#2a0606; }
+  .label{ font-size:13px; color:var(--dim); letter-spacing:.2em; margin:12px 2px 8px; }
+
+  /* メトロノーム */
+  .bpm-display{ text-align:center; margin:4px 0 0; }
+  .bpm-num{ font-size:88px; font-weight:800; line-height:1; letter-spacing:-.03em; }
+  .bpm-sub{ font-size:14px; color:var(--dim); letter-spacing:.25em; }
+
+  .dots{ display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin:14px 0 10px; min-height:26px;}
+  .dot{ width:24px; height:24px; border-radius:50%; background:var(--panel2); border:2px solid var(--line); transition:transform .05s, background .05s, box-shadow .05s; }
+  .dot.first{ border-color:var(--accent-soft); }
+  .dot.active{ transform:scale(1.35); }
+  .dot.active.weak{ background:var(--dim); box-shadow:0 0 12px rgba(138,138,156,.6); }
+  .dot.active.medium{ background:var(--medium); box-shadow:0 0 16px rgba(242,201,76,.7); }
+  .dot.active.strong{ background:var(--strong); box-shadow:0 0 20px rgba(45,212,191,.85); }
+
+  input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:8px; border-radius:8px; background:var(--line); outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:34px; height:34px; border-radius:50%; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.4); border:3px solid #04201d; }
+  .range-ends{ display:flex; justify-content:space-between; font-size:12px; color:var(--dim); margin-top:4px;}
+
+  .bpm-btns{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:10px; }
+  .bpm-btns .btn{ font-size:20px; padding:16px 0; }
+
+  .snd-row{ display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .snd{ border:none; border-radius:12px; background:var(--panel2); font-size:14px; font-weight:700; padding:14px 0; }
+  .snd.active{ background:var(--accent); color:#04201d; }
+
+  /* 拍子表示（分数＝線つき） */
+  .frac{ display:inline-flex; flex-direction:column; align-items:center; line-height:1; }
+  .frac .n{ font-size:30px; font-weight:800; padding:0 4px 3px; }
+  .frac .d{ font-size:30px; font-weight:800; border-top:3px solid currentColor; padding:3px 4px 0; }
+  .sig-display{ width:100%; border:none; border-radius:14px; background:var(--panel2); padding:12px 0; }
+
+  .start-wrap{ margin-top:auto; padding-top:18px; }
+  .start-wrap .btn{ width:100%; font-size:26px; padding:22px 0; }
+
+  /* 拍子モーダル */
+  .modal{ position:fixed; inset:0; background:rgba(8,8,12,.97); display:none; flex-direction:column; z-index:50; padding:calc(env(safe-area-inset-top) + 10px) 16px 16px; }
+  .modal.open{ display:flex; }
+  .modal-head{ display:flex; justify-content:space-between; align-items:center; padding-bottom:10px; }
+  .modal-title{ font-size:16px; color:var(--dim); letter-spacing:.15em; }
+  .done{ background:var(--panel2); color:var(--accent); border:none; border-radius:22px; padding:10px 24px; font-size:17px; font-weight:700; }
+  .sig-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; overflow-y:auto; padding:8px 2px 30px; align-content:start; }
+  .sig-cell{ background:var(--panel2); border:2px solid transparent; border-radius:16px; aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; }
+  .sig-cell.sel{ border-color:var(--accent); box-shadow:0 0 16px rgba(45,212,191,.4); }
+  .sig-cell.sel .frac{ color:var(--accent); }
+  .sig-cell .frac .d{ color:var(--dim); border-top-color:var(--line); }
+  .sig-cell.sel .frac .d{ color:var(--accent); border-top-color:var(--accent); }
+
+  /* チューナー */
+  .subtabs{ display:flex; gap:8px; margin-bottom:6px; }
+  .subtab{ flex:1; padding:14px 0; border:none; border-radius:12px; background:var(--panel); color:var(--dim); display:flex; align-items:center; justify-content:center; }
+  .subtab svg{ width:30px; height:30px; }
+  .subtab.active{ background:var(--panel2); color:var(--accent); box-shadow:inset 0 0 0 2px var(--accent-soft); }
+
+  .note-box{ text-align:center; margin:8px 0 0; }
+  .note-name{ font-size:104px; font-weight:800; line-height:1; letter-spacing:-.04em; transition:color .15s; }
+  .note-name .oct{ font-size:42px; font-weight:700; vertical-align:super; color:var(--dim); }
+  .freq{ font-size:18px; color:var(--dim); margin-top:2px; min-height:22px; }
+
+  .gauge{ width:100%; height:184px; display:block; }
+  .level{ height:6px; background:var(--line); border-radius:4px; margin:4px 24px 0; overflow:hidden;}
+  #levelFill{ height:100%; width:0%; background:var(--accent); transition:width .05s linear;}
+  .lights{ display:flex; align-items:center; justify-content:center; gap:14px; margin-top:10px; }
+  .lights .sym{ font-size:20px; color:var(--dim); width:16px; text-align:center;}
+  .lamp{ width:18px; height:18px; border-radius:50%; background:#2a2a38; transition:.1s; }
+  .lamp.on-red{ background:var(--bad); box-shadow:0 0 12px rgba(255,107,107,.75);}
+  .lamp.on-green{ background:var(--good); box-shadow:0 0 14px rgba(61,220,151,.85);}
+  .cents-num{ text-align:center; font-size:18px; font-weight:700; margin:10px 0 0; color:var(--dim); transition:color .15s;}
+
+  .ref-controls{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:6px 0; }
+  .ref-step{ font-size:44px; line-height:1; padding:16px 0; }
+  .ref-step span{ display:block; font-size:13px; color:var(--dim); font-weight:600; margin-top:6px; }
+  .oct-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .oct{ font-size:16px; padding:13px 0; background:var(--panel2); }
+
+  .a4-box{ background:var(--panel); border-radius:16px; padding:14px; margin-top:14px; }
+  .a4-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .a4-title{ font-size:14px; color:var(--dim); letter-spacing:.1em;}
+  .a4-val{ font-size:26px; font-weight:800; }
+  .a4-val small{ font-size:14px; color:var(--dim); font-weight:600; }
+  .a4-btns{ display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+  .a4-btns .btn{ font-size:17px; padding:14px 0; background:var(--panel2);}
+  .a4-btns .btn.reset{ font-size:15px; }
+
+  .mic-btn{ margin-top:auto; }
+  .hint{ font-size:13px; color:var(--dim); text-align:center; margin-top:12px; line-height:1.6;}
+  .hint.err{ color:var(--bad); }
+</style>
+</head>
+<body>
+
+  <div class="tabs">
+    <button class="tab active" id="tabMetro">メトロノーム</button>
+    <button class="tab" id="tabTuner">チューナー</button>
+  </div>
+
+  <!-- ===== メトロノーム ===== -->
+  <section class="view active" id="viewMetro">
+    <div class="bpm-display">
+      <div class="bpm-num" id="bpmNum">120</div>
+      <div class="bpm-sub">BPM</div>
+    </div>
+
+    <div class="dots" id="dots"></div>
+
+    <input type="range" id="bpmSlider" min="40" max="240" value="120" step="1">
+    <div class="range-ends"><span>40</span><span>240</span></div>
+
+    <div class="bpm-btns">
+      <button class="btn" data-bpm="-5">−5</button>
+      <button class="btn" data-bpm="-1">−1</button>
+      <button class="btn" data-bpm="1">＋1</button>
+      <button class="btn" data-bpm="5">＋5</button>
+    </div>
+
+    <div class="label">音色</div>
+    <div class="snd-row" id="sndRow">
+      <button class="snd active" data-snd="beep">ビープ</button>
+      <button class="snd" data-snd="wood">ウッド</button>
+      <button class="snd" data-snd="click">クリック</button>
+      <button class="snd" data-snd="tone">トーン</button>
+      <button class="snd" data-snd="cowbell">カウベル</button>
+    </div>
+
+    <div class="label">拍子（タップして選択）</div>
+    <button class="sig-display" id="sigBtn"></button>
+
+    <div class="start-wrap">
+      <button class="btn btn-primary" id="startBtn">スタート</button>
+    </div>
+  </section>
+
+  <!-- 拍子モーダル -->
+  <div class="modal" id="sigModal">
+    <div class="modal-head">
+      <span class="modal-title">拍子をえらぶ</span>
+      <button class="done" id="sigDone">完了</button>
+    </div>
+    <div class="sig-grid" id="sigGrid"></div>
+  </div>
+
+  <!-- ===== チューナー ===== -->
+  <section class="view" id="viewTuner">
+    <div class="subtabs">
+      <button class="subtab active" id="modeListen" aria-label="聴く（判定）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><line x1="12" y1="17.5" x2="12" y2="21.5"/><line x1="8" y1="21.5" x2="16" y2="21.5"/>
+        </svg>
+      </button>
+      <button class="subtab" id="modeConfirm" aria-label="鳴らす（確認）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a9 9 0 0 1 0 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 判定モード -->
+    <div id="panelListen">
+      <div class="note-box">
+        <div class="note-name" id="noteName">—</div>
+        <div class="freq" id="freq"></div>
+      </div>
+      <canvas id="gauge" class="gauge"></canvas>
+      <div class="level"><div id="levelFill"></div></div>
+      <div class="lights">
+        <span class="sym">♭</span>
+        <span class="lamp" id="lampFlat"></span>
+        <span class="lamp" id="lampCenter"></span>
+        <span class="lamp" id="lampSharp"></span>
+        <span class="sym">♯</span>
+      </div>
+      <div class="cents-num" id="centsNum">マイク待機中</div>
+    </div>
+
+    <!-- 確認モード -->
+    <div id="panelConfirm" style="display:none">
+      <div class="note-box">
+        <div class="note-name" id="refNote">A<span class="oct">4</span></div>
+        <div class="freq" id="refFreqEl">440.0 Hz</div>
+      </div>
+      <div class="ref-controls">
+        <button class="btn ref-step" id="flatBtn">♭<span>半音さげる</span></button>
+        <button class="btn ref-step" id="sharpBtn">♯<span>半音あげる</span></button>
+      </div>
+      <div class="oct-row">
+        <button class="btn oct" id="octDown">▼ オクターブ</button>
+        <button class="btn oct" id="octUp">▲ オクターブ</button>
+      </div>
+    </div>
+
+    <!-- 共有：基準ピッチ A4 -->
+    <div class="a4-box">
+      <div class="a4-top">
+        <span class="a4-title">基準ピッチ A4</span>
+        <span class="a4-val"><span id="a4Val">440</span><small> Hz</small></span>
+      </div>
+      <div class="a4-btns">
+        <button class="btn" data-a4="-5">−5</button>
+        <button class="btn" data-a4="-1">−1</button>
+        <button class="btn reset" data-a4="reset">440</button>
+        <button class="btn" data-a4="1">＋1</button>
+        <button class="btn" data-a4="5">＋5</button>
+      </div>
+    </div>
+
+    <button class="btn btn-primary mic-btn" id="micBtn">マイクを使う</button>
+    <button class="btn btn-primary mic-btn" id="playBtn" style="display:none">鳴らす</button>
+    <div class="hint" id="tunerHint">マイクのアイコンで外部の音を判定、スピーカーのアイコンで基準音を再生します。</div>
+  </section>
+
+<script>
+"use strict";
+
+/* ===== 共通：AudioContext ===== */
+let audioCtx=null, master=null, noiseBuffer=null;
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    master=audioCtx.createGain(); master.gain.value=1; master.connect(audioCtx.destination);
+  }
+  if(audioCtx.state==="suspended") audioCtx.resume();
+  return audioCtx;
+}
+function getNoiseBuffer(){
+  if(noiseBuffer) return noiseBuffer;
+  const len=Math.floor(audioCtx.sampleRate*0.2);
+  noiseBuffer=audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+  const d=noiseBuffer.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+  return noiseBuffer;
+}
+
+/* ===== タブ切替 ===== */
+const tabMetro=document.getElementById("tabMetro"), tabTuner=document.getElementById("tabTuner");
+const viewMetro=document.getElementById("viewMetro"), viewTuner=document.getElementById("viewTuner");
+tabMetro.addEventListener("click", ()=>{
+  tabMetro.classList.add("active"); tabTuner.classList.remove("active");
+  viewMetro.classList.add("active"); viewTuner.classList.remove("active");
+  stopTuner(); stopRef();
+});
+tabTuner.addEventListener("click", ()=>{
+  tabTuner.classList.add("active"); tabMetro.classList.remove("active");
+  viewTuner.classList.add("active"); viewMetro.classList.remove("active");
+  stopMetronome();
+  requestAnimationFrame(()=>{ if(tunerMode==="listen"){ sizeGauge(); resetGauge(); } });
+});
+
+/* ======================================================================
+   メトロノーム
+   ====================================================================== */
+let bpm=120, beatsPerMeasure=4, beatDenom=4, isPlaying=false, soundType="beep";
+let currentBeat=0, nextNoteTime=0, schedulerTimer=null, notesInQueue=[];
+const LOOKAHEAD=25, SCHEDULE_AHEAD=0.12;
+
+const bpmNum=document.getElementById("bpmNum");
+const bpmSlider=document.getElementById("bpmSlider");
+const dotsEl=document.getElementById("dots");
+const startBtn=document.getElementById("startBtn");
+
+function accentPattern(beats, denom){
+  const arr=new Array(beats).fill(0); arr[0]=2;
+  if(denom===8 && beats%3===0 && beats>=6){ for(let i=3;i<beats;i+=3) arr[i]=1; }
+  return arr;
+}
+function buildDots(){
+  dotsEl.innerHTML="";
+  for(let i=0;i<beatsPerMeasure;i++){ const d=document.createElement("div"); d.className="dot"+(i===0?" first":""); dotsEl.appendChild(d); }
+}
+function setBpm(v){ bpm=Math.min(240,Math.max(40,Math.round(v))); bpmNum.textContent=bpm; bpmSlider.value=bpm; }
+
+function sndBeep(level,time){
+  const f=level===2?1600:level===1?1100:850;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type="square"; o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(level===2?0.7:0.5,time+0.002); g.gain.exponentialRampToValueAtTime(0.0001,time+0.05);
+  o.connect(g); g.connect(master); o.start(time); o.stop(time+0.06);
+}
+function sndWood(level,time){
+  const f=level===2?1050:level===1?820:620;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type="triangle"; o.frequency.setValueAtTime(f,time); o.frequency.exponentialRampToValueAtTime(f*0.55,time+0.025);
+  g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(0.9,time+0.001); g.gain.exponentialRampToValueAtTime(0.0001,time+0.045);
+  o.connect(g); g.connect(master); o.start(time); o.stop(time+0.05);
+}
+function sndClick(level,time){
+  const s=audioCtx.createBufferSource(); s.buffer=getNoiseBuffer();
+  const bp=audioCtx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=level===2?3600:level===1?2600:1800; bp.Q.value=9;
+  const g=audioCtx.createGain(); g.gain.setValueAtTime(level===2?1.0:0.7,time); g.gain.exponentialRampToValueAtTime(0.0001,time+0.025);
+  s.connect(bp); bp.connect(g); g.connect(master); s.start(time); s.stop(time+0.03);
+}
+function sndTone(level,time){
+  const f=level===2?880:level===1?660:440;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type="sine"; o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(0.55,time+0.005); g.gain.exponentialRampToValueAtTime(0.0001,time+0.12);
+  o.connect(g); g.connect(master); o.start(time); o.stop(time+0.13);
+}
+function sndCowbell(level,time){
+  const mult=level===2?1.18:level===1?1.05:1;
+  const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(level===2?0.45:0.32,time+0.002); g.gain.exponentialRampToValueAtTime(0.0001,time+0.16); g.connect(master);
+  [540,800].forEach(fr=>{ const o=audioCtx.createOscillator(), bp=audioCtx.createBiquadFilter(); o.type="square"; o.frequency.value=fr*mult; bp.type="bandpass"; bp.frequency.value=fr*mult; bp.Q.value=5; o.connect(bp); bp.connect(g); o.start(time); o.stop(time+0.18); });
+}
+function playClick(level,time){
+  switch(soundType){ case "wood":return sndWood(level,time); case "click":return sndClick(level,time); case "tone":return sndTone(level,time); case "cowbell":return sndCowbell(level,time); default:return sndBeep(level,time); }
+}
+
+function advanceNote(){ nextNoteTime+=60.0/bpm; currentBeat=(currentBeat+1)%beatsPerMeasure; }
+function scheduler(){
+  const pat=accentPattern(beatsPerMeasure,beatDenom);
+  while(nextNoteTime<audioCtx.currentTime+SCHEDULE_AHEAD){ playClick(pat[currentBeat]||0,nextNoteTime); notesInQueue.push({beat:currentBeat,time:nextNoteTime}); advanceNote(); }
+}
+let lastDrawnBeat=-1;
+function draw(){
+  const now=audioCtx?audioCtx.currentTime:0; let beat=lastDrawnBeat;
+  while(notesInQueue.length && notesInQueue[0].time<=now){ beat=notesInQueue[0].beat; notesInQueue.shift(); }
+  if(beat!==lastDrawnBeat){ highlightDot(beat); lastDrawnBeat=beat; }
+  if(isPlaying) requestAnimationFrame(draw);
+}
+function highlightDot(beat){
+  const dots=dotsEl.children, pat=accentPattern(beatsPerMeasure,beatDenom);
+  for(let i=0;i<dots.length;i++) dots[i].className="dot"+(i===0?" first":"");
+  const d=dots[beat]; if(!d) return; const lv=pat[beat]||0;
+  d.classList.add("active", lv===2?"strong":lv===1?"medium":"weak");
+}
+function startMetronome(){
+  ensureAudio(); isPlaying=true; currentBeat=0; lastDrawnBeat=-1; notesInQueue=[];
+  nextNoteTime=audioCtx.currentTime+0.06; schedulerTimer=setInterval(scheduler,LOOKAHEAD); requestAnimationFrame(draw);
+  startBtn.textContent="ストップ"; startBtn.classList.add("running"); requestWakeLock();
+}
+function stopMetronome(){
+  if(!isPlaying) return;
+  isPlaying=false; clearInterval(schedulerTimer); schedulerTimer=null; notesInQueue=[];
+  const dots=dotsEl.children; for(let i=0;i<dots.length;i++) dots[i].className="dot"+(i===0?" first":"");
+  startBtn.textContent="スタート"; startBtn.classList.remove("running"); releaseWakeLock();
+}
+startBtn.addEventListener("click", ()=> isPlaying?stopMetronome():startMetronome());
+bpmSlider.addEventListener("input", e=>setBpm(+e.target.value));
+document.querySelectorAll(".bpm-btns .btn").forEach(b=> b.addEventListener("click", ()=>setBpm(bpm+(+b.dataset.bpm))));
+document.getElementById("sndRow").addEventListener("click", e=>{
+  const b=e.target.closest(".snd"); if(!b) return;
+  document.querySelectorAll(".snd").forEach(s=>s.classList.remove("active"));
+  b.classList.add("active"); soundType=b.dataset.snd; ensureAudio(); playClick(2,audioCtx.currentTime+0.02);
+});
+
+/* 拍子（分数表記＋線） */
+const sigBtn=document.getElementById("sigBtn"), sigModal=document.getElementById("sigModal"), sigGrid=document.getElementById("sigGrid");
+const TIME_SIGS=[[1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],[3,8],[5,8],[6,8],[7,8],[9,8],[12,8],[2,2],[3,2]];
+function fracHTML(n,d){ return '<span class="frac"><span class="n">'+n+'</span><span class="d">'+d+'</span></span>'; }
+function buildSigGrid(){
+  sigGrid.innerHTML="";
+  TIME_SIGS.forEach(([n,d])=>{ const c=document.createElement("button"); c.className="sig-cell"+((n===beatsPerMeasure&&d===beatDenom)?" sel":""); c.innerHTML=fracHTML(n,d); c.addEventListener("click",()=>selectSig(n,d)); sigGrid.appendChild(c); });
+}
+function selectSig(n,d){ beatsPerMeasure=n; beatDenom=d; sigBtn.innerHTML=fracHTML(n,d); buildDots(); if(isPlaying) currentBeat=0; sigModal.classList.remove("open"); }
+sigBtn.addEventListener("click", ()=>{ buildSigGrid(); sigModal.classList.add("open"); });
+document.getElementById("sigDone").addEventListener("click", ()=> sigModal.classList.remove("open"));
+
+sigBtn.innerHTML=fracHTML(4,4);
+buildDots();
+
+let wakeLock=null;
+async function requestWakeLock(){ try{ if("wakeLock" in navigator) wakeLock=await navigator.wakeLock.request("screen"); }catch(e){} }
+function releaseWakeLock(){ try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){} }
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"&&isPlaying) requestWakeLock(); });
+
+/* ======================================================================
+   チューナー
+   ====================================================================== */
+const NOTE_NAMES=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];
+let a4=440, tunerMode="listen";
+
+const a4ValEl=document.getElementById("a4Val");
+document.querySelector(".a4-btns").addEventListener("click", e=>{
+  const b=e.target.closest(".btn"); if(!b) return;
+  if(b.dataset.a4==="reset") a4=440; else a4=Math.min(445,Math.max(415,a4+(+b.dataset.a4)));
+  a4ValEl.textContent=a4; renderRef();
+});
+function midiToName(midi){ return {name:NOTE_NAMES[((midi%12)+12)%12], oct:Math.floor(midi/12)-1}; }
+function midiToFreq(midi){ return a4*Math.pow(2,(midi-69)/12); }
+
+/* ----- アナログ針メーター（Canvas） ----- */
+const gauge=document.getElementById("gauge"), gctx=gauge.getContext("2d");
+const levelFill=document.getElementById("levelFill");
+const lampFlat=document.getElementById("lampFlat"), lampCenter=document.getElementById("lampCenter"), lampSharp=document.getElementById("lampSharp");
+let gW=0, gH=0;
+function sizeGauge(){
+  const dpr=window.devicePixelRatio||1; const r=gauge.getBoundingClientRect();
+  if(r.width===0) return;
+  gW=r.width; gH=r.height; gauge.width=Math.round(gW*dpr); gauge.height=Math.round(gH*dpr);
+  gctx.setTransform(dpr,0,0,dpr,0,0);
+}
+const MAXA=52; // ±50centで±52°
+function drawGauge(cents, color){
+  if(!gW) return;
+  const W=gW, H=gH, cx=W/2, cy=H*0.97, R=Math.min(W*0.42, H*0.96);
+  gctx.clearRect(0,0,W,H);
+  // 目盛り
+  for(let c=-50;c<=50;c++){
+    const a=(c/50)*MAXA*Math.PI/180, major=(c%10===0), med=(c%5===0);
+    const inner=R-(major?20:med?13:7);
+    gctx.beginPath(); gctx.lineWidth=major?2.5:med?1.7:1;
+    gctx.strokeStyle=major?"rgba(243,243,248,.92)":"rgba(138,138,156,.55)";
+    gctx.moveTo(cx+Math.sin(a)*R, cy-Math.cos(a)*R); gctx.lineTo(cx+Math.sin(a)*inner, cy-Math.cos(a)*inner); gctx.stroke();
+  }
+  // ラベル
+  gctx.fillStyle="rgba(138,138,156,.95)"; gctx.font="600 13px -apple-system,sans-serif"; gctx.textAlign="center"; gctx.textBaseline="middle";
+  gctx.fillText("0", cx, cy-R-12);
+  let la=(-50/50)*MAXA*Math.PI/180; gctx.fillText("-50", cx+Math.sin(la)*(R+14), cy-Math.cos(la)*(R+14));
+  la=(50/50)*MAXA*Math.PI/180; gctx.fillText("+50", cx+Math.sin(la)*(R+14), cy-Math.cos(la)*(R+14));
+  gctx.fillStyle="rgba(138,138,156,.7)"; gctx.font="600 11px -apple-system,sans-serif"; gctx.fillText("CENT", cx, cy-R*0.42);
+  // 針
+  const na=(Math.max(-50,Math.min(50,cents))/50)*MAXA*Math.PI/180;
+  gctx.beginPath(); gctx.lineCap="round"; gctx.lineWidth=4; gctx.strokeStyle=color;
+  gctx.moveTo(cx,cy); gctx.lineTo(cx+Math.sin(na)*(R-4), cy-Math.cos(na)*(R-4)); gctx.stroke();
+  gctx.beginPath(); gctx.fillStyle=color; gctx.arc(cx,cy,7,0,Math.PI*2); gctx.fill();
+}
+function setLevel(rms){ levelFill.style.width=Math.max(0,Math.min(100,rms*600))+"%"; }
+function setLamps(cents){
+  lampFlat.className="lamp"+(cents<-5?" on-red":"");
+  lampSharp.className="lamp"+(cents>5?" on-red":"");
+  lampCenter.className="lamp"+(Math.abs(cents)<=5?" on-green":"");
+}
+function resetGauge(){ drawGauge(0,"rgba(138,138,156,.7)"); setLamps(99); setLevel(0); }
+window.addEventListener("resize", ()=>{ if(tunerMode==="listen"){ sizeGauge(); if(!tunerRunning) resetGauge(); } });
+
+/* ----- モード切替（アイコン） ----- */
+const modeListen=document.getElementById("modeListen"), modeConfirm=document.getElementById("modeConfirm");
+const panelListen=document.getElementById("panelListen"), panelConfirm=document.getElementById("panelConfirm");
+const micBtn=document.getElementById("micBtn"), playBtn=document.getElementById("playBtn"), tunerHint=document.getElementById("tunerHint");
+function setTunerMode(mode){
+  tunerMode=mode;
+  if(mode==="listen"){
+    stopRef(); panelConfirm.style.display="none"; panelListen.style.display="";
+    playBtn.style.display="none"; micBtn.style.display="";
+    modeListen.classList.add("active"); modeConfirm.classList.remove("active");
+    tunerHint.classList.remove("err"); tunerHint.innerHTML="「マイクを使う」で外部の音を判定します。中央(0)で緑に光ります。";
+    requestAnimationFrame(()=>{ sizeGauge(); if(!tunerRunning) resetGauge(); });
+  }else{
+    stopTuner(); panelListen.style.display="none"; panelConfirm.style.display="";
+    micBtn.style.display="none"; playBtn.style.display="";
+    modeConfirm.classList.add("active"); modeListen.classList.remove("active");
+    tunerHint.classList.remove("err"); tunerHint.innerHTML="♭/♯ で音を選び「鳴らす」で基準音を再生。自分の音と合わせて確認できます。";
+    renderRef();
+  }
+}
+modeListen.addEventListener("click", ()=>setTunerMode("listen"));
+modeConfirm.addEventListener("click", ()=>setTunerMode("confirm"));
+
+/* ----- 判定モード（マイク＋自己相関） ----- */
+let tunerStream=null, analyser=null, micSource=null, tunerRunning=false, rafTuner=null, detectBuf=null;
+const noteName=document.getElementById("noteName"), freqEl=document.getElementById("freq"), centsNum=document.getElementById("centsNum");
+
+async function startTuner(){
+  try{
+    tunerStream=await navigator.mediaDevices.getUserMedia({ audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false} });
+  }catch(err){
+    tunerHint.classList.add("err"); tunerHint.innerHTML="マイクを使えませんでした。権限を許可するか、<br>HTTPS（または localhost）で開いてください。"; return;
+  }
+  ensureAudio();
+  analyser=audioCtx.createAnalyser(); analyser.fftSize=2048; detectBuf=new Float32Array(analyser.fftSize);
+  micSource=audioCtx.createMediaStreamSource(tunerStream); micSource.connect(analyser);
+  tunerRunning=true; micBtn.textContent="停止"; micBtn.classList.add("running");
+  tunerHint.classList.remove("err"); tunerHint.innerHTML="音を出してください。下のバーが反応すれば拾えています。";
+  sizeGauge(); resetGauge(); updateTuner();
+}
+function stopTuner(){
+  if(!tunerRunning) return;
+  tunerRunning=false; if(rafTuner) cancelAnimationFrame(rafTuner);
+  if(micSource) micSource.disconnect(); if(tunerStream) tunerStream.getTracks().forEach(t=>t.stop());
+  tunerStream=null; analyser=null; micSource=null;
+  micBtn.textContent="マイクを使う"; micBtn.classList.remove("running");
+  noteName.textContent="—"; noteName.style.color="var(--text)"; freqEl.textContent="";
+  centsNum.textContent="マイク待機中"; centsNum.style.color="var(--dim)"; resetGauge();
+}
+micBtn.addEventListener("click", ()=> tunerRunning?stopTuner():startTuner());
+
+function autoCorrelate(buf, sampleRate){
+  const SIZE=buf.length; let rms=0; for(let i=0;i<SIZE;i++){ const v=buf[i]; rms+=v*v; } rms=Math.sqrt(rms/SIZE);
+  if(rms<0.004) return -1;
+  let r1=0,r2=SIZE-1; const th=0.2;
+  for(let i=0;i<SIZE/2;i++){ if(Math.abs(buf[i])<th){ r1=i; break; } }
+  for(let i=1;i<SIZE/2;i++){ if(Math.abs(buf[SIZE-i])<th){ r2=SIZE-i; break; } }
+  const b=buf.slice(r1,r2), n=b.length; const c=new Float32Array(n);
+  for(let i=0;i<n;i++) for(let j=0;j<n-i;j++) c[i]+=b[j]*b[j+i];
+  let d=0; while(d<n-1 && c[d]>c[d+1]) d++;
+  let maxval=-1,maxpos=-1; for(let i=d;i<n;i++){ if(c[i]>maxval){ maxval=c[i]; maxpos=i; } }
+  let T0=maxpos; if(T0<=0) return -1;
+  const x1=c[T0-1],x2=c[T0],x3=c[T0+1], a=(x1+x3-2*x2)/2, bb=(x3-x1)/2; if(a) T0=T0-bb/(2*a);
+  return sampleRate/T0;
+}
+let smoothCents=0, lastGoodTime=0;
+function updateTuner(){
+  if(!tunerRunning) return;
+  analyser.getFloatTimeDomainData(detectBuf);
+  let rms=0; for(let i=0;i<detectBuf.length;i++){ const v=detectBuf[i]; rms+=v*v; } rms=Math.sqrt(rms/detectBuf.length);
+  setLevel(rms);
+  const freq=autoCorrelate(detectBuf,audioCtx.sampleRate);
+  if(freq>0 && freq<5000){
+    const nf=12*(Math.log(freq/a4)/Math.LN2)+69, midi=Math.round(nf), cents=(nf-midi)*100;
+    const {name,oct}=midiToName(midi);
+    smoothCents=smoothCents*0.6+cents*0.4;
+    renderListen(name,oct,freq,smoothCents); lastGoodTime=performance.now();
+  }else if(performance.now()-lastGoodTime>500){
+    noteName.style.color="var(--text)"; centsNum.textContent="音を出してください"; centsNum.style.color="var(--dim)";
+    drawGauge(0,"rgba(138,138,156,.7)"); setLamps(99);
+  }
+  rafTuner=requestAnimationFrame(updateTuner);
+}
+function renderListen(name,oct,freq,cents){
+  noteName.innerHTML=name+'<span class="oct">'+oct+'</span>'; freqEl.textContent=freq.toFixed(1)+" Hz";
+  const abs=Math.abs(cents), col=abs<=5?"#3ddc97":abs<=15?"#f2c94c":"#ff6b6b";
+  noteName.style.color=col; centsNum.style.color=col;
+  centsNum.textContent=(cents>=0?"+":"−")+Math.abs(Math.round(cents))+" cent"+(abs<=5?"（ぴったり！）":"");
+  drawGauge(cents,col); setLamps(cents);
+}
+
+/* ----- 確認モード（基準音を鳴らす） ----- */
+let refMidi=69, refOsc=null, refGain=null, refPlaying=false;
+const refNoteEl=document.getElementById("refNote"), refFreqEl=document.getElementById("refFreqEl");
+function renderRef(){
+  const {name,oct}=midiToName(refMidi);
+  refNoteEl.innerHTML=name+'<span class="oct">'+oct+'</span>';
+  const f=midiToFreq(refMidi); refFreqEl.textContent=f.toFixed(1)+" Hz";
+  refNoteEl.style.color=refPlaying?"var(--accent)":"var(--text)";
+  if(refPlaying&&refOsc) refOsc.frequency.setTargetAtTime(f,audioCtx.currentTime,0.015);
+}
+function startRef(){
+  ensureAudio(); refOsc=audioCtx.createOscillator(); refGain=audioCtx.createGain();
+  refOsc.type="sine"; refOsc.frequency.value=midiToFreq(refMidi); refGain.gain.value=0.0001;
+  refOsc.connect(refGain); refGain.connect(master); refOsc.start();
+  refGain.gain.exponentialRampToValueAtTime(0.22,audioCtx.currentTime+0.02);
+  refPlaying=true; playBtn.textContent="止める"; playBtn.classList.add("running"); renderRef();
+}
+function stopRef(){
+  if(!refPlaying) return;
+  const t=audioCtx.currentTime; refGain.gain.cancelScheduledValues(t); refGain.gain.setValueAtTime(refGain.gain.value,t);
+  refGain.gain.exponentialRampToValueAtTime(0.0001,t+0.05); refOsc.stop(t+0.08);
+  refPlaying=false; playBtn.textContent="鳴らす"; playBtn.classList.remove("running"); refNoteEl.style.color="var(--text)";
+}
+playBtn.addEventListener("click", ()=> refPlaying?stopRef():startRef());
+function changeRef(delta){ refMidi=Math.min(108,Math.max(24,refMidi+delta)); renderRef(); }
+document.getElementById("flatBtn").addEventListener("click", ()=>changeRef(-1));
+document.getElementById("sharpBtn").addEventListener("click", ()=>changeRef(1));
+document.getElementById("octDown").addEventListener("click", ()=>changeRef(-12));
+document.getElementById("octUp").addEventListener("click", ()=>changeRef(12));
+
+</script>
+</body>
+</html>
